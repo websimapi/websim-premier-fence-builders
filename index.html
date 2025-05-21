@@ -48,6 +48,7 @@
             overflow: hidden;
             background-color: black;
             z-index: 1;
+            border: 2px solid rgba(255, 0, 0, 0.5);
         }
 
         #static-canvas, #scene-canvas {
@@ -151,10 +152,12 @@
         const startOverlay = document.getElementById('start-overlay');
         const startButton = document.getElementById('start-button');
         const tvContent = document.querySelector('.tv-content');
+        const tvFrame = document.querySelector('.tv-frame');
 
-        // Completely redesigned TV screen area detection function
-        async function detectTvScreenArea() {
+        // Simplified TV screen area detection function using a scan-line approach
+        function detectTvScreenArea() {
             return new Promise((resolve) => {
+                // Create new image object
                 const img = new Image();
                 img.src = 'tv_frame.png';
                 
@@ -174,151 +177,86 @@
                     const imageData = ctx.getImageData(0, 0, img.width, img.height);
                     const data = imageData.data;
                     
-                    // Start from the center of the image and search for the transparent area
-                    // This assumes the TV screen is roughly centered in the image
-                    const centerX = Math.floor(img.width / 2);
+                    // Define transparent threshold
+                    const alphaThreshold = 50;
+                    
+                    // Scan horizontally from center to find left and right boundaries
                     const centerY = Math.floor(img.height / 2);
+                    const centerX = Math.floor(img.width / 2);
                     
-                    console.log(`Starting search from center point: (${centerX}, ${centerY})`);
+                    console.log(`Starting scan from center point: (${centerX}, ${centerY})`);
                     
-                    // Check if the center point is transparent
-                    const centerIdx = (centerY * img.width + centerX) * 4 + 3; // Alpha channel
-                    const alphaThreshold = 50; // Pixels with alpha less than this are considered transparent
+                    // Initialize boundaries with extreme values
+                    let left = img.width;
+                    let right = 0;
+                    let top = img.height;
+                    let bottom = 0;
                     
-                    if (data[centerIdx] >= alphaThreshold) {
-                        console.warn("Center point is not transparent, searching for nearest transparent area");
-                        // Search for the nearest transparent pixel to the center
-                        let found = false;
-                        let radius = 1;
-                        const maxRadius = Math.max(img.width, img.height) / 2;
-                        
-                        while (!found && radius < maxRadius) {
-                            // Search in expanding squares around center
-                            for (let y = centerY - radius; y <= centerY + radius; y++) {
-                                for (let x = centerX - radius; x <= centerX + radius; x++) {
-                                    // Only check the perimeter of the square
-                                    if (x === centerX - radius || x === centerX + radius || 
-                                        y === centerY - radius || y === centerY + radius) {
-                                        
-                                        if (x >= 0 && x < img.width && y >= 0 && y < img.height) {
-                                            const idx = (y * img.width + x) * 4 + 3;
-                                            if (data[idx] < alphaThreshold) {
-                                                console.log(`Found transparent pixel at (${x}, ${y})`);
-                                                found = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if (found) break;
-                            }
-                            radius++;
-                        }
-                        
-                        if (!found) {
-                            console.error("Could not find any transparent pixels near center");
-                            applyFallbackValues();
-                            resolve();
-                            return;
+                    // Find horizontal boundaries at center Y
+                    for (let x = centerX; x >= 0; x--) {
+                        const idx = (centerY * img.width + x) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            left = x + 1; // First non-transparent pixel from left + 1
+                            break;
                         }
                     }
                     
-                    // Use flood fill algorithm to find the connected transparent area
-                    const visited = new Array(img.width * img.height).fill(false);
-                    const screenPixels = [];
-                    const queue = [{x: centerX, y: centerY}];
-                    
-                    while (queue.length > 0) {
-                        const {x, y} = queue.shift();
-                        const pixelIndex = y * img.width + x;
-                        
-                        if (visited[pixelIndex]) continue;
-                        visited[pixelIndex] = true;
-                        
-                        const idx = pixelIndex * 4 + 3; // Alpha channel
-                        if (data[idx] < alphaThreshold) {
-                            screenPixels.push({x, y});
-                            
-                            // Check 4 adjacent pixels
-                            const directions = [
-                                {dx: 1, dy: 0},  // right
-                                {dx: -1, dy: 0}, // left
-                                {dx: 0, dy: 1},  // down
-                                {dx: 0, dy: -1}  // up
-                            ];
-                            
-                            for (const {dx, dy} of directions) {
-                                const nx = x + dx;
-                                const ny = y + dy;
-                                
-                                if (nx >= 0 && nx < img.width && ny >= 0 && ny < img.height && !visited[ny * img.width + nx]) {
-                                    queue.push({x: nx, y: ny});
-                                }
-                            }
+                    for (let x = centerX; x < img.width; x++) {
+                        const idx = (centerY * img.width + x) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            right = x - 1; // First non-transparent pixel from right - 1
+                            break;
                         }
                     }
                     
-                    console.log(`Identified ${screenPixels.length} pixels in the TV screen area`);
+                    // Find vertical boundaries at center X
+                    for (let y = centerY; y >= 0; y--) {
+                        const idx = (y * img.width + centerX) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            top = y + 1; // First non-transparent pixel from top + 1
+                            break;
+                        }
+                    }
                     
-                    if (screenPixels.length === 0) {
-                        console.error("Failed to identify any pixels in TV screen area");
+                    for (let y = centerY; y < img.height; y++) {
+                        const idx = (y * img.width + centerX) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            bottom = y - 1; // First non-transparent pixel from bottom - 1
+                            break;
+                        }
+                    }
+                    
+                    // Verify boundaries make sense
+                    const screenWidth = right - left + 1;
+                    const screenHeight = bottom - top + 1;
+                    
+                    console.log(`Raw screen area bounds: X(${left}-${right}), Y(${top}-${bottom})`);
+                    console.log(`Raw screen area dimensions: ${screenWidth}x${screenHeight}`);
+                    
+                    // Apply padding to ensure we're inside the visible area
+                    const padding = 5;
+                    left += padding;
+                    right -= padding;
+                    top += padding;
+                    bottom -= padding;
+                    
+                    // Calculate final dimensions
+                    const finalWidth = right - left + 1;
+                    const finalHeight = bottom - top + 1;
+                    
+                    // Validate results
+                    if (finalWidth <= 0 || finalHeight <= 0 || left >= right || top >= bottom) {
+                        console.error("Invalid screen boundaries detected, using fallback");
                         applyFallbackValues();
                         resolve();
                         return;
                     }
                     
-                    // Calculate the bounding box of the screen area
-                    let minX = img.width, maxX = 0, minY = img.height, maxY = 0;
-                    
-                    for (const {x, y} of screenPixels) {
-                        minX = Math.min(minX, x);
-                        maxX = Math.max(maxX, x);
-                        minY = Math.min(minY, y);
-                        maxY = Math.max(maxY, y);
-                    }
-                    
-                    // Calculate width and height of screen area
-                    const width = maxX - minX + 1;
-                    const height = maxY - minY + 1;
-                    
-                    console.log(`Screen area bounds: X(${minX}-${maxX}), Y(${minY}-${maxY})`);
-                    console.log(`Screen area dimensions: ${width}x${height}`);
-                    
-                    // Debug visualization
-                    const debugging = false; // Set to true to see the detected area
-                    if (debugging) {
-                        // Mark the detected area with a red overlay
-                        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                        
-                        for (const {x, y} of screenPixels) {
-                            ctx.fillRect(x, y, 1, 1);
-                        }
-                        
-                        // Draw bounding box
-                        ctx.strokeStyle = 'lime';
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(minX, minY, width, height);
-                        
-                        // Mark center point
-                        ctx.fillStyle = 'blue';
-                        ctx.fillRect(centerX - 5, centerY - 5, 10, 10);
-                        
-                        // Add the debug canvas to the page
-                        document.body.appendChild(canvas);
-                        canvas.style.position = 'fixed';
-                        canvas.style.top = '10px';
-                        canvas.style.right = '10px';
-                        canvas.style.zIndex = '1000';
-                        canvas.style.width = '300px';
-                        canvas.style.height = 'auto';
-                        canvas.style.border = '2px solid red';
-                    }
-                    
                     // Apply the detected dimensions as percentages
-                    const screenLeft = (minX / img.width) * 100;
-                    const screenTop = (minY / img.height) * 100;
-                    const screenWidth = (width / img.width) * 100;
-                    const screenHeight = (height / img.height) * 100;
+                    const screenLeft = (left / img.width) * 100;
+                    const screenTop = (top / img.height) * 100;
+                    const screenWidth = (finalWidth / img.width) * 100;
+                    const screenHeight = (finalHeight / img.height) * 100;
                     
                     // Set the TV content dimensions
                     tvContent.style.left = `${screenLeft}%`;
@@ -327,6 +265,34 @@
                     tvContent.style.height = `${screenHeight}%`;
                     
                     console.log(`Applied TV content position: left=${tvContent.style.left}, top=${tvContent.style.top}, width=${tvContent.style.width}, height=${tvContent.style.height}`);
+                    
+                    // Debug visualization if needed
+                    const debugging = true; // Enable debug visualization
+                    if (debugging) {
+                        ctx.strokeStyle = 'lime';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(left, top, finalWidth, finalHeight);
+                        
+                        // Mark center point
+                        ctx.fillStyle = 'blue';
+                        ctx.fillRect(centerX - 5, centerY - 5, 10, 10);
+                        
+                        // Create a debug display
+                        const debugCanvas = document.createElement('canvas');
+                        debugCanvas.width = img.width;
+                        debugCanvas.height = img.height;
+                        const debugCtx = debugCanvas.getContext('2d');
+                        debugCtx.drawImage(canvas, 0, 0);
+                        
+                        document.body.appendChild(debugCanvas);
+                        debugCanvas.style.position = 'fixed';
+                        debugCanvas.style.top = '10px';
+                        debugCanvas.style.right = '10px';
+                        debugCanvas.style.zIndex = '1000';
+                        debugCanvas.style.width = '300px';
+                        debugCanvas.style.height = 'auto';
+                        debugCanvas.style.border = '2px solid red';
+                    }
                     
                     // Resize canvases
                     handleResize();
@@ -340,14 +306,39 @@
                 };
                 
                 function applyFallbackValues() {
-                    // More accurate fallback values based on typical TV proportions
-                    tvContent.style.left = '12%';
-                    tvContent.style.top = '15%';
-                    tvContent.style.width = '76%';
-                    tvContent.style.height = '54%';
+                    // Conservative fallback values
+                    tvContent.style.left = '15%';
+                    tvContent.style.top = '12%';
+                    tvContent.style.width = '70%';
+                    tvContent.style.height = '60%';
                     console.log("Using fallback TV content dimensions");
                 }
             });
+        }
+
+        // Add a direct sizing method as backup
+        function setupTvContentDirectly() {
+            // Wait for the TV frame to load
+            if (tvFrame.complete) {
+                applyDirectSizing();
+            } else {
+                tvFrame.onload = applyDirectSizing;
+            }
+            
+            function applyDirectSizing() {
+                console.log("Applying direct TV content sizing");
+                const frameWidth = tvFrame.offsetWidth;
+                const frameHeight = tvFrame.offsetHeight;
+                
+                // Apply TV content positioning based on typical TV proportions
+                tvContent.style.left = '15%';
+                tvContent.style.top = '12%';
+                tvContent.style.width = '70%';
+                tvContent.style.height = '60%';
+                
+                // Force the canvas sizes to update
+                handleResize();
+            }
         }
 
         // Set up canvases
@@ -601,8 +592,11 @@
         window.addEventListener('load', async () => {
             console.log("Page loaded, detecting TV screen area...");
             
-            // First detect the TV screen area
+            // Try the detection method first
             await detectTvScreenArea();
+            
+            // As a backup, also apply direct sizing
+            setupTvContentDirectly();
             
             // Then setup the canvases
             handleResize();
