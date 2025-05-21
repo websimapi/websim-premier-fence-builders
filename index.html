@@ -152,7 +152,7 @@
         const startButton = document.getElementById('start-button');
         const tvContent = document.querySelector('.tv-content');
 
-        // Improved TV screen area detection function
+        // Completely revised TV screen area detection function
         async function detectTvScreenArea() {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -174,39 +174,103 @@
                     const imageData = ctx.getImageData(0, 0, img.width, img.height);
                     const data = imageData.data;
                     
-                    // Find the transparent area (alpha channel < 128)
-                    const transparentPixels = [];
-                    const alphaThreshold = 128;
+                    // Start from the center of the image
+                    const centerX = Math.floor(img.width / 2);
+                    const centerY = Math.floor(img.height / 2);
+                    console.log(`Center coordinates: (${centerX}, ${centerY})`);
                     
-                    for (let y = 0; y < img.height; y++) {
-                        for (let x = 0; x < img.width; x++) {
-                            const idx = (y * img.width + x) * 4 + 3; // Alpha channel
-                            if (data[idx] < alphaThreshold) {
-                                transparentPixels.push({ x, y });
+                    // Check if center pixel is bright (likely part of the TV screen)
+                    const centerIdx = (centerY * img.width + centerX) * 4;
+                    const centerBrightness = (data[centerIdx] + data[centerIdx + 1] + data[centerIdx + 2]) / 3;
+                    console.log(`Center pixel brightness: ${centerBrightness}`);
+                    
+                    // Define brightness threshold to identify screen pixels
+                    const brightnessThreshold = 200; // Bright pixels (TV screen)
+                    
+                    // If center pixel isn't bright, try expanding search slightly
+                    if (centerBrightness < brightnessThreshold) {
+                        console.log("Center pixel not bright enough, expanding search");
+                        // Try to find a bright pixel near the center
+                        const searchRadius = 20;
+                        let foundBrightPixel = false;
+                        
+                        for (let offsetY = -searchRadius; offsetY <= searchRadius && !foundBrightPixel; offsetY++) {
+                            for (let offsetX = -searchRadius; offsetX <= searchRadius && !foundBrightPixel; offsetX++) {
+                                const x = centerX + offsetX;
+                                const y = centerY + offsetY;
+                                
+                                if (x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+                                
+                                const idx = (y * img.width + x) * 4;
+                                const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+                                
+                                if (brightness >= brightnessThreshold) {
+                                    console.log(`Found bright pixel at (${x}, ${y})`);
+                                    foundBrightPixel = true;
+                                }
                             }
+                        }
+                        
+                        if (!foundBrightPixel) {
+                            console.warn("No bright pixels found near center, using hardcoded values");
+                            useHardcodedValues();
+                            resolve();
+                            return;
                         }
                     }
                     
-                    console.log(`Found ${transparentPixels.length} transparent pixels`);
+                    // Flood fill from center to find screen area
+                    const screenPixels = [];
+                    const visited = new Set();
+                    const queue = [{x: centerX, y: centerY}];
                     
-                    if (transparentPixels.length < 100) {
-                        console.warn("Not enough transparent pixels found, using hardcoded values");
+                    while (queue.length > 0) {
+                        const {x, y} = queue.shift();
+                        const key = `${x},${y}`;
+                        
+                        // Skip if already visited or outside bounds
+                        if (visited.has(key) || x < 0 || y < 0 || x >= img.width || y >= img.height) {
+                            continue;
+                        }
+                        
+                        visited.add(key);
+                        
+                        // Check pixel brightness
+                        const idx = (y * img.width + x) * 4;
+                        const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+                        
+                        if (brightness >= brightnessThreshold) {
+                            // This is a screen pixel
+                            screenPixels.push({x, y});
+                            
+                            // Add neighbors to check
+                            queue.push({x: x+1, y: y});
+                            queue.push({x: x-1, y: y});
+                            queue.push({x: x, y: y+1});
+                            queue.push({x: x, y: y-1});
+                        }
+                    }
+                    
+                    console.log(`Found ${screenPixels.length} screen pixels`);
+                    
+                    if (screenPixels.length < 100) {
+                        console.warn("Not enough screen pixels found, using hardcoded values");
                         useHardcodedValues();
                         resolve();
                         return;
                     }
                     
-                    // Find the bounding box of the transparent area (TV screen)
+                    // Find the bounding box of the screen area
                     let minX = img.width, maxX = 0, minY = img.height, maxY = 0;
                     
-                    transparentPixels.forEach(pixel => {
+                    screenPixels.forEach(pixel => {
                         minX = Math.min(minX, pixel.x);
                         maxX = Math.max(maxX, pixel.x);
                         minY = Math.min(minY, pixel.y);
                         maxY = Math.max(maxY, pixel.y);
                     });
                     
-                    // Calculate screen dimensions
+                    // Calculate screen dimensions and position
                     const screenWidth = maxX - minX + 1;
                     const screenHeight = maxY - minY + 1;
                     
@@ -224,10 +288,24 @@
                     // Set the TV content position to match the screen area
                     tvContent.style.left = `${minX / img.width * 100}%`;
                     tvContent.style.top = `${minY / img.height * 100}%`;
-                    tvContent.style.width = `${(maxX - minX) / img.width * 100}%`;
-                    tvContent.style.height = `${(maxY - minY) / img.height * 100}%`;
+                    tvContent.style.width = `${screenWidth / img.width * 100}%`;
+                    tvContent.style.height = `${screenHeight / img.height * 100}%`;
                     
                     console.log(`Applied TV content styles: left=${tvContent.style.left}, top=${tvContent.style.top}, width=${tvContent.style.width}, height=${tvContent.style.height}`);
+                    
+                    // Add a visual debugging indicator if needed (can be removed in final version)
+                    const debugElement = document.createElement('div');
+                    debugElement.style.position = 'absolute';
+                    debugElement.style.border = '2px solid red';
+                    debugElement.style.left = tvContent.style.left;
+                    debugElement.style.top = tvContent.style.top;
+                    debugElement.style.width = tvContent.style.width;
+                    debugElement.style.height = tvContent.style.height;
+                    debugElement.style.pointerEvents = 'none';
+                    debugElement.style.zIndex = '100';
+                    debugElement.style.opacity = '0.5';
+                    document.querySelector('.container').appendChild(debugElement);
+                    setTimeout(() => debugElement.remove(), 5000); // Remove after 5 seconds
                     
                     // Resize the canvases to match the detected area
                     handleResize();
@@ -241,7 +319,7 @@
                 };
                 
                 function useHardcodedValues() {
-                    // Using reliable fallback values for the TV screen area
+                    // Reliable fallback values for the TV screen area
                     tvContent.style.left = '18%';
                     tvContent.style.top = '17%';
                     tvContent.style.width = '64%';
