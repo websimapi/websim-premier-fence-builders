@@ -45,10 +45,10 @@
 
         .tv-content {
             position: absolute;
-            top: 12%;
-            left: 11.5%;
-            width: 77%;
-            height: 58%;
+            top: 11%;
+            left: 11%;
+            width: 78%;
+            height: 60%;
             overflow: hidden;
             background-color: black;
         }
@@ -153,6 +153,121 @@
         const tvContainer = document.querySelector('.tv-container');
         const startOverlay = document.getElementById('start-overlay');
         const startButton = document.getElementById('start-button');
+        const tvFrame = document.querySelector('.tv-frame');
+        const tvContent = document.querySelector('.tv-content');
+
+        // Detect TV screen area from image
+        function detectTvScreenArea() {
+            // Create an offscreen canvas to analyze the TV frame image
+            const offscreenCanvas = document.createElement('canvas');
+            const ctx = offscreenCanvas.getContext('2d');
+            
+            // Load the TV frame image to detect the transparent area
+            const img = new Image();
+            img.src = 'tv_frame.png';
+            
+            img.onload = function() {
+                offscreenCanvas.width = img.width;
+                offscreenCanvas.height = img.height;
+                
+                // Draw the image to the canvas
+                ctx.drawImage(img, 0, 0);
+                
+                // Get image data
+                const imageData = ctx.getImageData(0, 0, img.width, img.height);
+                const data = imageData.data;
+                
+                // Variables to track the bounds of the transparent area
+                let left = img.width;
+                let right = 0;
+                let top = img.height;
+                let bottom = 0;
+                let centerX = Math.floor(img.width / 2);
+                let centerY = Math.floor(img.height / 2);
+                
+                // First find center transparent pixel
+                let centerPixelFound = false;
+                let searchRadius = 0;
+                
+                while (!centerPixelFound && searchRadius < Math.max(img.width, img.height) / 2) {
+                    searchRadius += 5;
+                    
+                    for (let y = centerY - searchRadius; y <= centerY + searchRadius; y++) {
+                        for (let x = centerX - searchRadius; x <= centerX + searchRadius; x++) {
+                            // Only check pixels on the perimeter of the search area
+                            if (Math.abs(x - centerX) === searchRadius || Math.abs(y - centerY) === searchRadius) {
+                                if (x >= 0 && x < img.width && y >= 0 && y < img.height) {
+                                    const i = (y * img.width + x) * 4 + 3; // Alpha channel
+                                    if (data[i] < 50) { // Transparent pixel
+                                        centerX = x;
+                                        centerY = y;
+                                        centerPixelFound = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (centerPixelFound) break;
+                    }
+                }
+                
+                // Now expand outward from center to find edges
+                if (centerPixelFound) {
+                    // Find left edge
+                    for (let x = centerX; x >= 0; x--) {
+                        const i = (centerY * img.width + x) * 4 + 3;
+                        if (data[i] > 50) { // Non-transparent pixel
+                            left = x + 1;
+                            break;
+                        }
+                    }
+                    
+                    // Find right edge
+                    for (let x = centerX; x < img.width; x++) {
+                        const i = (centerY * img.width + x) * 4 + 3;
+                        if (data[i] > 50) { // Non-transparent pixel
+                            right = x - 1;
+                            break;
+                        }
+                    }
+                    
+                    // Find top edge
+                    for (let y = centerY; y >= 0; y--) {
+                        const i = (y * img.width + centerX) * 4 + 3;
+                        if (data[i] > 50) { // Non-transparent pixel
+                            top = y + 1;
+                            break;
+                        }
+                    }
+                    
+                    // Find bottom edge
+                    for (let y = centerY; y < img.height; y++) {
+                        const i = (y * img.width + centerX) * 4 + 3;
+                        if (data[i] > 50) { // Non-transparent pixel
+                            bottom = y - 1;
+                            break;
+                        }
+                    }
+                }
+                
+                // Calculate the screen area percentages
+                const screenLeft = (left / img.width) * 100;
+                const screenTop = (top / img.height) * 100;
+                const screenWidth = ((right - left) / img.width) * 100;
+                const screenHeight = ((bottom - top) / img.height) * 100;
+                
+                // Apply the detected area to the TV content
+                tvContent.style.left = screenLeft + '%';
+                tvContent.style.top = screenTop + '%';
+                tvContent.style.width = screenWidth + '%';
+                tvContent.style.height = screenHeight + '%';
+                
+                console.log(`Detected screen area: left=${screenLeft}%, top=${screenTop}%, width=${screenWidth}%, height=${screenHeight}%`);
+                
+                // Make sure the static canvas is properly sized
+                handleResize();
+            };
+        }
 
         // Set up canvases
         const staticCtx = staticCanvas.getContext('2d');
@@ -203,9 +318,10 @@
             const imageData = staticCtx.createImageData(width, height);
             const data = imageData.data;
             
-            // Generate random static with higher contrast
+            // Generate random static with high contrast black and white
             for (let i = 0; i < data.length; i += 4) {
-                const value = Math.floor(Math.random() * 200) + 55; 
+                // More pronounced static with 0 or 255 (pure black or white)
+                const value = Math.random() > 0.5 ? 255 : 0;
                 data[i] = value;       // Red
                 data[i + 1] = value;   // Green
                 data[i + 2] = value;   // Blue
@@ -389,6 +505,9 @@
             handleResize();
             staticCanvas.width = staticCanvas.offsetWidth;
             staticCanvas.height = staticCanvas.offsetHeight;
+            
+            // Detect TV screen area after the image has loaded
+            detectTvScreenArea();
         });
         window.addEventListener('resize', handleResize);
     </script>
