@@ -152,7 +152,7 @@
         const startButton = document.getElementById('start-button');
         const tvContent = document.querySelector('.tv-content');
 
-        // Completely revised TV screen area detection function
+        // Improved TV screen area detection function
         async function detectTvScreenArea() {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -174,53 +174,32 @@
                     const imageData = ctx.getImageData(0, 0, img.width, img.height);
                     const data = imageData.data;
                     
-                    // We're looking for the WHITE area (screen) in the image
-                    // which should have very high RGB values (close to 255,255,255)
-                    const whiteThreshold = 230; // High threshold to detect white screen
-                    let screenPixels = [];
+                    // Find the transparent area (alpha channel < 128)
+                    const transparentPixels = [];
+                    const alphaThreshold = 128;
                     
-                    // Scan image and find white pixels (the screen area)
                     for (let y = 0; y < img.height; y++) {
                         for (let x = 0; x < img.width; x++) {
-                            const idx = (y * img.width + x) * 4;
-                            // Check if pixel is white (all RGB channels high)
-                            if (data[idx] > whiteThreshold && 
-                                data[idx + 1] > whiteThreshold && 
-                                data[idx + 2] > whiteThreshold) {
-                                screenPixels.push({ x, y });
+                            const idx = (y * img.width + x) * 4 + 3; // Alpha channel
+                            if (data[idx] < alphaThreshold) {
+                                transparentPixels.push({ x, y });
                             }
                         }
                     }
                     
-                    console.log(`Found ${screenPixels.length} white screen pixels`);
+                    console.log(`Found ${transparentPixels.length} transparent pixels`);
                     
-                    if (screenPixels.length < 100) { // Need a minimum number of pixels
-                        console.warn("Not enough white pixels found for screen detection");
-                        // Fallback to transparent pixel detection
-                        screenPixels = [];
-                        const alphaThreshold = 128;
-                        for (let y = 0; y < img.height; y++) {
-                            for (let x = 0; x < img.width; x++) {
-                                const idx = (y * img.width + x) * 4 + 3; // Alpha channel
-                                if (data[idx] < alphaThreshold) {
-                                    screenPixels.push({ x, y });
-                                }
-                            }
-                        }
-                        console.log(`Found ${screenPixels.length} transparent pixels as fallback`);
-                    }
-                    
-                    if (screenPixels.length < 100) {
-                        console.warn("Detection failed, using hardcoded values");
+                    if (transparentPixels.length < 100) {
+                        console.warn("Not enough transparent pixels found, using hardcoded values");
                         useHardcodedValues();
                         resolve();
                         return;
                     }
                     
-                    // Find the bounding box of the screen area
+                    // Find the bounding box of the transparent area (TV screen)
                     let minX = img.width, maxX = 0, minY = img.height, maxY = 0;
                     
-                    screenPixels.forEach(pixel => {
+                    transparentPixels.forEach(pixel => {
                         minX = Math.min(minX, pixel.x);
                         maxX = Math.max(maxX, pixel.x);
                         minY = Math.min(minY, pixel.y);
@@ -235,19 +214,12 @@
                     console.log(`TV screen dimensions: ${screenWidth}x${screenHeight}`);
                     
                     // Make sure the detected area makes sense
-                    if (screenWidth < img.width * 0.3 || screenHeight < img.height * 0.3) {
+                    if (screenWidth < img.width * 0.2 || screenHeight < img.height * 0.2) {
                         console.warn("Detected screen area too small, using hardcoded values");
                         useHardcodedValues();
                         resolve();
                         return;
                     }
-                    
-                    // Add some padding to the bounds to make sure we cover the entire screen
-                    const padding = 2;
-                    minX = Math.max(0, minX - padding);
-                    minY = Math.max(0, minY - padding);
-                    maxX = Math.min(img.width - 1, maxX + padding);
-                    maxY = Math.min(img.height - 1, maxY + padding);
                     
                     // Set the TV content position to match the screen area
                     tvContent.style.left = `${minX / img.width * 100}%`;
@@ -256,29 +228,6 @@
                     tvContent.style.height = `${(maxY - minY) / img.height * 100}%`;
                     
                     console.log(`Applied TV content styles: left=${tvContent.style.left}, top=${tvContent.style.top}, width=${tvContent.style.width}, height=${tvContent.style.height}`);
-                    
-                    // Create a debug visualization (visible during development)
-                    const debugContainer = document.createElement('div');
-                    debugContainer.id = 'debug-container';
-                    debugContainer.style.position = 'fixed';
-                    debugContainer.style.top = '10px';
-                    debugContainer.style.right = '10px';
-                    debugContainer.style.width = '200px';
-                    debugContainer.style.zIndex = '9999';
-                    
-                    const debugCanvas = document.createElement('canvas');
-                    debugCanvas.width = img.width;
-                    debugCanvas.height = img.height;
-                    const debugCtx = debugCanvas.getContext('2d');
-                    debugCtx.drawImage(img, 0, 0);
-                    
-                    // Highlight the detected region
-                    debugCtx.strokeStyle = 'red';
-                    debugCtx.lineWidth = 3;
-                    debugCtx.strokeRect(minX, minY, maxX - minX, maxY - minY);
-                    
-                    debugContainer.appendChild(debugCanvas);
-                    document.body.appendChild(debugContainer);
                     
                     // Resize the canvases to match the detected area
                     handleResize();
@@ -292,11 +241,11 @@
                 };
                 
                 function useHardcodedValues() {
-                    // Using values based on the image you shared
-                    tvContent.style.left = '16%';
-                    tvContent.style.top = '18%';
-                    tvContent.style.width = '58%';
-                    tvContent.style.height = '53%';
+                    // Using reliable fallback values for the TV screen area
+                    tvContent.style.left = '18%';
+                    tvContent.style.top = '17%';
+                    tvContent.style.width = '64%';
+                    tvContent.style.height = '55%';
                     console.log("Using hardcoded TV content dimensions");
                 }
             });
