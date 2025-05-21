@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premier Fence Builders</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .tv-container {
+            position: relative;
+            transform-origin: center;
+            animation: zoom-in 5s forwards;
+        }
+
+        .tv-frame {
+            width: 80vmin;
+            height: auto;
+            position: relative;
+            z-index: 2;
+        }
+
+        .tv-content {
+            position: absolute;
+            top: 14%;
+            left: 11.5%;
+            width: 77%;
+            height: 58%;
+            overflow: hidden;
+        }
+
+        #static-canvas, #scene-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #scene-canvas {
+            display: none;
+        }
+
+        @keyframes zoom-in {
+            0% {
+                transform: scale(0.5);
+            }
+            100% {
+                transform: scale(1.5);
+            }
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+                "simplex-noise": "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="tv-container">
+            <div class="tv-content">
+                <canvas id="static-canvas"></canvas>
+                <canvas id="scene-canvas"></canvas>
+            </div>
+            <img src="tv_frame.png" alt="TV Frame" class="tv-frame">
+        </div>
+    </div>
+    <audio id="static-sound" src="static_noise.mp3" loop></audio>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { createNoise2D } from 'simplex-noise';
+
+        // Get DOM elements
+        const staticCanvas = document.getElementById('static-canvas');
+        const sceneCanvas = document.getElementById('scene-canvas');
+        const staticSound = document.getElementById('static-sound');
+        const tvContainer = document.querySelector('.tv-container');
+
+        // Set up canvases
+        const staticCtx = staticCanvas.getContext('2d');
+        staticCanvas.width = staticCanvas.offsetWidth;
+        staticCanvas.height = staticCanvas.offsetHeight;
+
+        // Initialize variables
+        let animationFrameId;
+        let isStaticPlaying = true;
+        const noise2D = createNoise2D();
+
+        // Start with static visuals and sound
+        function init() {
+            // Start playing static sound
+            staticSound.play();
+            
+            // Start the static visual effect
+            drawStatic();
+            
+            // After the zoom animation completes, transition to 3D scene
+            setTimeout(() => {
+                transitionTo3DScene();
+            }, 5000); // 5 seconds, same as our zoom animation
+        }
+
+        function drawStatic() {
+            if (!isStaticPlaying) return;
+            
+            const { width, height } = staticCanvas;
+            const imageData = staticCtx.createImageData(width, height);
+            const data = imageData.data;
+            
+            // Generate random static
+            for (let i = 0; i < data.length; i += 4) {
+                const value = Math.floor(Math.random() * 256);
+                data[i] = value;       // Red
+                data[i + 1] = value;   // Green
+                data[i + 2] = value;   // Blue
+                data[i + 3] = 255;     // Alpha
+            }
+            
+            staticCtx.putImageData(imageData, 0, 0);
+            animationFrameId = requestAnimationFrame(drawStatic);
+        }
+
+        function transitionTo3DScene() {
+            // Stop static animation
+            isStaticPlaying = false;
+            cancelAnimationFrame(animationFrameId);
+            
+            // Fade out static sound
+            let volume = 1;
+            const fadeInterval = setInterval(() => {
+                volume -= 0.1;
+                if (volume <= 0) {
+                    staticSound.pause();
+                    clearInterval(fadeInterval);
+                } else {
+                    staticSound.volume = volume;
+                }
+            }, 100);
+            
+            // Hide static canvas, show 3D canvas
+            staticCanvas.style.opacity = 0;
+            sceneCanvas.style.display = 'block';
+            
+            // Initialize 3D scene
+            init3DScene();
+        }
+
+        function init3DScene() {
+            // Set up Three.js scene
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, sceneCanvas.offsetWidth / sceneCanvas.offsetHeight, 0.1, 1000);
+            
+            const renderer = new THREE.WebGLRenderer({ canvas: sceneCanvas, alpha: true });
+            renderer.setSize(sceneCanvas.offsetWidth, sceneCanvas.offsetHeight);
+            
+            // Add lighting for sunrise effect
+            const sunLight = new THREE.DirectionalLight(0xffdfb5, 1);
+            sunLight.position.set(-10, 5, 10);
+            scene.add(sunLight);
+            
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            // Create grass terrain
+            const terrainGeometry = new THREE.PlaneGeometry(100, 100, 50, 50);
+            
+            // Apply noise to vertices to create hills
+            const position = terrainGeometry.attributes.position;
+            for (let i = 0; i < position.count; i++) {
+                const x = position.getX(i);
+                const z = position.getZ(i);
+                
+                // Apply perlin noise for natural terrain
+                const elevation = noise2D(x * 0.05, z * 0.05) * 5;
+                position.setY(i, elevation);
+            }
+            
+            terrainGeometry.computeVertexNormals();
+            
+            // Create grass material
+            const terrainMaterial = new THREE.MeshStandardMaterial({
+                color: 0x7cfc00,
+                flatShading: false,
+            });
+            
+            const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+            terrain.rotation.x = -Math.PI / 2;
+            scene.add(terrain);
+            
+            // Add sky with sunrise gradient
+            const skyGeometry = new THREE.SphereGeometry(500, 32, 32);
+            const sunriseColors = [
+                new THREE.Color(0x1e1e2f), // Dark blue (top)
+                new THREE.Color(0x5b3b63), // Purple
+                new THREE.Color(0xff9e6d), // Orange
+                new THREE.Color(0xffdf91)  // Yellow (bottom, sunrise)
+            ];
+            
+            // Create sky material with gradient
+            const skyMaterial = new THREE.ShaderMaterial({
+                vertexShader: `
+                    varying vec3 vPosition;
+                    void main() {
+                        vPosition = position;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 topColor;
+                    uniform vec3 middleColor1;
+                    uniform vec3 middleColor2;
+                    uniform vec3 bottomColor;
+                    varying vec3 vPosition;
+                    
+                    void main() {
+                        float h = normalize(vPosition).y;
+                        vec3 color;
+                        
+                        if (h > 0.5) {
+                            color = mix(middleColor1, topColor, (h - 0.5) * 2.0);
+                        } else if (h > 0.0) {
+                            color = mix(middleColor2, middleColor1, h * 2.0);
+                        } else {
+                            color = mix(bottomColor, middleColor2, h + 1.0);
+                        }
+                        
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                `,
+                uniforms: {
+                    topColor: { value: sunriseColors[0] },
+                    middleColor1: { value: sunriseColors[1] },
+                    middleColor2: { value: sunriseColors[2] },
+                    bottomColor: { value: sunriseColors[3] },
+                },
+                side: THREE.BackSide
+            });
+            
+            const sky = new THREE.Mesh(skyGeometry, skyMaterial);
+            scene.add(sky);
+            
+            // Add sun
+            const sunGeometry = new THREE.SphereGeometry(20, 32, 32);
+            const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff80 });
+            const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+            sun.position.set(-100, -20, 100);
+            scene.add(sun);
+            
+            // Set camera position
+            camera.position.set(0, 10, 25);
+            camera.lookAt(0, 0, 0);
+            
+            // Add controls
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            // Animation function
+            function animate() {
+                requestAnimationFrame(animate);
+                
+                // Slowly move the sun upward for sunrise effect
+                if (sun.position.y < 50) {
+                    sun.position.y += 0.05;
+                    // Adjust lighting as sun rises
+                    sunLight.intensity = 1 + (sun.position.y / 20);
+                }
+                
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            
+            // Start animation
+            animate();
+            
+            // Handle resize
+            window.addEventListener('resize', () => {
+                sceneCanvas.width = sceneCanvas.offsetWidth;
+                sceneCanvas.height = sceneCanvas.offsetHeight;
+                camera.aspect = sceneCanvas.offsetWidth / sceneCanvas.offsetHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(sceneCanvas.offsetWidth, sceneCanvas.offsetHeight);
+            });
+        }
+
+        // Start everything when the page loads
+        window.addEventListener('load', init);
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
