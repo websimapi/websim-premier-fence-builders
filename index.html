@@ -40,15 +40,17 @@
             height: auto;
             position: relative;
             z-index: 2;
+            pointer-events: none;
         }
 
         .tv-content {
             position: absolute;
-            top: 14%;
+            top: 12%;
             left: 11.5%;
             width: 77%;
             height: 58%;
             overflow: hidden;
+            background-color: black;
         }
 
         #static-canvas, #scene-canvas {
@@ -196,12 +198,14 @@
             if (!isStaticPlaying) return;
             
             const { width, height } = staticCanvas;
+            staticCanvas.width = width;
+            staticCanvas.height = height;
             const imageData = staticCtx.createImageData(width, height);
             const data = imageData.data;
             
-            // Generate random static
+            // Generate random static with higher contrast
             for (let i = 0; i < data.length; i += 4) {
-                const value = Math.floor(Math.random() * 256);
+                const value = Math.floor(Math.random() * 200) + 55; 
                 data[i] = value;       // Red
                 data[i + 1] = value;   // Green
                 data[i + 2] = value;   // Blue
@@ -381,8 +385,12 @@
             staticCanvas.height = staticCanvas.offsetHeight;
         }
 
+        window.addEventListener('load', () => {
+            handleResize();
+            staticCanvas.width = staticCanvas.offsetWidth;
+            staticCanvas.height = staticCanvas.offsetHeight;
+        });
         window.addEventListener('resize', handleResize);
-        window.addEventListener('load', handleResize);
     </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
