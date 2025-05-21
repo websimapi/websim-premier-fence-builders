@@ -28,6 +28,10 @@
         .tv-container {
             position: relative;
             transform-origin: center;
+            animation: none; 
+        }
+
+        .tv-container.animate {
             animation: zoom-in 5s forwards;
         }
 
@@ -59,6 +63,44 @@
             display: none;
         }
 
+        #start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+
+        #start-button {
+            padding: 15px 30px;
+            font-size: 24px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+        }
+
+        #start-button:hover {
+            background-color: #45a049;
+            transform: scale(1.05);
+        }
+
+        .logo {
+            font-size: 40px;
+            color: white;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
         @keyframes zoom-in {
             0% {
                 transform: scale(0.5);
@@ -79,6 +121,14 @@
     </script>
 </head>
 <body>
+    <div id="start-overlay">
+        <div class="logo">
+            <h1>Premier Fence Builders</h1>
+            <p>Building boundaries, creating spaces</p>
+        </div>
+        <button id="start-button">Start Experience</button>
+    </div>
+
     <div class="container">
         <div class="tv-container">
             <div class="tv-content">
@@ -99,6 +149,8 @@
         const sceneCanvas = document.getElementById('scene-canvas');
         const staticSound = document.getElementById('static-sound');
         const tvContainer = document.querySelector('.tv-container');
+        const startOverlay = document.getElementById('start-overlay');
+        const startButton = document.getElementById('start-button');
 
         // Set up canvases
         const staticCtx = staticCanvas.getContext('2d');
@@ -107,15 +159,31 @@
 
         // Initialize variables
         let animationFrameId;
-        let isStaticPlaying = true;
+        let isStaticPlaying = false; 
         const noise2D = createNoise2D();
 
-        // Start with static visuals and sound
-        function init() {
-            // Start playing static sound
-            staticSound.play();
+        // Wait for user interaction before starting
+        startButton.addEventListener('click', () => {
+            // Remove the overlay
+            startOverlay.style.display = 'none';
+            
+            // Start the experience
+            startExperience();
+        });
+
+        // Function to start the experience after user interaction
+        function startExperience() {
+            // Add animation class to TV container
+            tvContainer.classList.add('animate');
+            
+            // Start playing static sound with error handling
+            staticSound.play().catch(error => {
+                console.log('Audio playback failed:', error);
+                // Continue with visuals even if audio fails
+            });
             
             // Start the static visual effect
+            isStaticPlaying = true;
             drawStatic();
             
             // After the zoom animation completes, transition to 3D scene
@@ -307,10 +375,15 @@
             });
         }
 
-        // Start everything when the page loads
-        window.addEventListener('load', init);
+        // Resize event handlers
+        function handleResize() {
+            staticCanvas.width = staticCanvas.offsetWidth;
+            staticCanvas.height = staticCanvas.offsetHeight;
+        }
+
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('load', handleResize);
     </script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
