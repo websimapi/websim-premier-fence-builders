@@ -174,56 +174,144 @@
                     const imageData = ctx.getImageData(0, 0, img.width, img.height);
                     const data = imageData.data;
                     
-                    // Analyze entire image to find transparent area
-                    const transparentPixels = [];
+                    // Start from the center of the image and search for the transparent area
+                    // This assumes the TV screen is roughly centered in the image
+                    const centerX = Math.floor(img.width / 2);
+                    const centerY = Math.floor(img.height / 2);
+                    
+                    console.log(`Starting search from center point: (${centerX}, ${centerY})`);
+                    
+                    // Check if the center point is transparent
+                    const centerIdx = (centerY * img.width + centerX) * 4 + 3; // Alpha channel
                     const alphaThreshold = 50; // Pixels with alpha less than this are considered transparent
                     
-                    // First pass: identify all transparent pixels
-                    for (let y = 0; y < img.height; y++) {
-                        for (let x = 0; x < img.width; x++) {
-                            const idx = (y * img.width + x) * 4 + 3; // Alpha channel index
-                            if (data[idx] < alphaThreshold) {
-                                transparentPixels.push({ x, y });
+                    if (data[centerIdx] >= alphaThreshold) {
+                        console.warn("Center point is not transparent, searching for nearest transparent area");
+                        // Search for the nearest transparent pixel to the center
+                        let found = false;
+                        let radius = 1;
+                        const maxRadius = Math.max(img.width, img.height) / 2;
+                        
+                        while (!found && radius < maxRadius) {
+                            // Search in expanding squares around center
+                            for (let y = centerY - radius; y <= centerY + radius; y++) {
+                                for (let x = centerX - radius; x <= centerX + radius; x++) {
+                                    // Only check the perimeter of the square
+                                    if (x === centerX - radius || x === centerX + radius || 
+                                        y === centerY - radius || y === centerY + radius) {
+                                        
+                                        if (x >= 0 && x < img.width && y >= 0 && y < img.height) {
+                                            const idx = (y * img.width + x) * 4 + 3;
+                                            if (data[idx] < alphaThreshold) {
+                                                console.log(`Found transparent pixel at (${x}, ${y})`);
+                                                found = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (found) break;
+                            }
+                            radius++;
+                        }
+                        
+                        if (!found) {
+                            console.error("Could not find any transparent pixels near center");
+                            applyFallbackValues();
+                            resolve();
+                            return;
+                        }
+                    }
+                    
+                    // Use flood fill algorithm to find the connected transparent area
+                    const visited = new Array(img.width * img.height).fill(false);
+                    const screenPixels = [];
+                    const queue = [{x: centerX, y: centerY}];
+                    
+                    while (queue.length > 0) {
+                        const {x, y} = queue.shift();
+                        const pixelIndex = y * img.width + x;
+                        
+                        if (visited[pixelIndex]) continue;
+                        visited[pixelIndex] = true;
+                        
+                        const idx = pixelIndex * 4 + 3; // Alpha channel
+                        if (data[idx] < alphaThreshold) {
+                            screenPixels.push({x, y});
+                            
+                            // Check 4 adjacent pixels
+                            const directions = [
+                                {dx: 1, dy: 0},  // right
+                                {dx: -1, dy: 0}, // left
+                                {dx: 0, dy: 1},  // down
+                                {dx: 0, dy: -1}  // up
+                            ];
+                            
+                            for (const {dx, dy} of directions) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+                                
+                                if (nx >= 0 && nx < img.width && ny >= 0 && ny < img.height && !visited[ny * img.width + nx]) {
+                                    queue.push({x: nx, y: ny});
+                                }
                             }
                         }
                     }
                     
-                    console.log(`Found ${transparentPixels.length} transparent pixels`);
+                    console.log(`Identified ${screenPixels.length} pixels in the TV screen area`);
                     
-                    // If no transparent pixels found, use fallback values
-                    if (transparentPixels.length === 0) {
-                        console.warn("No transparent pixels found in the TV frame image");
+                    if (screenPixels.length === 0) {
+                        console.error("Failed to identify any pixels in TV screen area");
                         applyFallbackValues();
                         resolve();
                         return;
                     }
                     
-                    // Find the bounding box of transparent pixels
+                    // Calculate the bounding box of the screen area
                     let minX = img.width, maxX = 0, minY = img.height, maxY = 0;
                     
-                    for (const pixel of transparentPixels) {
-                        minX = Math.min(minX, pixel.x);
-                        maxX = Math.max(maxX, pixel.x);
-                        minY = Math.min(minY, pixel.y);
-                        maxY = Math.max(maxY, pixel.y);
+                    for (const {x, y} of screenPixels) {
+                        minX = Math.min(minX, x);
+                        maxX = Math.max(maxX, x);
+                        minY = Math.min(minY, y);
+                        maxY = Math.max(maxY, y);
                     }
                     
-                    // Calculate width and height of transparent area
+                    // Calculate width and height of screen area
                     const width = maxX - minX + 1;
                     const height = maxY - minY + 1;
                     
-                    console.log(`Transparent area bounds: X(${minX}-${maxX}), Y(${minY}-${maxY})`);
-                    console.log(`Transparent area dimensions: ${width}x${height}`);
+                    console.log(`Screen area bounds: X(${minX}-${maxX}), Y(${minY}-${maxY})`);
+                    console.log(`Screen area dimensions: ${width}x${height}`);
                     
-                    // Validate detection (to avoid tiny or obviously wrong areas)
-                    const minAreaRatio = 0.1; // Transparent area should be at least 10% of image
-                    const areaRatio = (width * height) / (img.width * img.height);
-                    
-                    if (areaRatio < minAreaRatio) {
-                        console.warn(`Detected area too small (${(areaRatio * 100).toFixed(2)}% of image)`);
-                        applyFallbackValues();
-                        resolve();
-                        return;
+                    // Debug visualization
+                    const debugging = false; // Set to true to see the detected area
+                    if (debugging) {
+                        // Mark the detected area with a red overlay
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                        
+                        for (const {x, y} of screenPixels) {
+                            ctx.fillRect(x, y, 1, 1);
+                        }
+                        
+                        // Draw bounding box
+                        ctx.strokeStyle = 'lime';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(minX, minY, width, height);
+                        
+                        // Mark center point
+                        ctx.fillStyle = 'blue';
+                        ctx.fillRect(centerX - 5, centerY - 5, 10, 10);
+                        
+                        // Add the debug canvas to the page
+                        document.body.appendChild(canvas);
+                        canvas.style.position = 'fixed';
+                        canvas.style.top = '10px';
+                        canvas.style.right = '10px';
+                        canvas.style.zIndex = '1000';
+                        canvas.style.width = '300px';
+                        canvas.style.height = 'auto';
+                        canvas.style.border = '2px solid red';
                     }
                     
                     // Apply the detected dimensions as percentages
@@ -240,20 +328,6 @@
                     
                     console.log(`Applied TV content position: left=${tvContent.style.left}, top=${tvContent.style.top}, width=${tvContent.style.width}, height=${tvContent.style.height}`);
                     
-                    // Debug visualization (uncomment if needed for debugging)
-                    /*
-                    ctx.strokeStyle = 'red';
-                    ctx.lineWidth = 3;
-                    ctx.strokeRect(minX, minY, width, height);
-                    document.body.appendChild(canvas);
-                    canvas.style.position = 'absolute';
-                    canvas.style.top = '0';
-                    canvas.style.left = '0';
-                    canvas.style.zIndex = '100';
-                    canvas.style.transform = 'scale(0.3)';
-                    canvas.style.transformOrigin = 'top left';
-                    */
-                    
                     // Resize canvases
                     handleResize();
                     resolve();
@@ -266,11 +340,11 @@
                 };
                 
                 function applyFallbackValues() {
-                    // Conservative fallback values
-                    tvContent.style.left = '11%';
-                    tvContent.style.top = '11%';
-                    tvContent.style.width = '78%';
-                    tvContent.style.height = '60%';
+                    // More accurate fallback values based on typical TV proportions
+                    tvContent.style.left = '12%';
+                    tvContent.style.top = '15%';
+                    tvContent.style.width = '76%';
+                    tvContent.style.height = '54%';
                     console.log("Using fallback TV content dimensions");
                 }
             });
