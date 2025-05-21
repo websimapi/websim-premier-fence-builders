@@ -48,6 +48,7 @@
             overflow: hidden;
             background-color: black;
             z-index: 1;
+            border: 2px solid rgba(255, 0, 0, 0.5);
         }
 
         #static-canvas, #scene-canvas {
@@ -151,10 +152,12 @@
         const startOverlay = document.getElementById('start-overlay');
         const startButton = document.getElementById('start-button');
         const tvContent = document.querySelector('.tv-content');
+        const tvFrame = document.querySelector('.tv-frame');
 
-        // Completely redesigned TV screen area detection function
-        async function detectTvScreenArea() {
+        // Simplified TV screen area detection function using a scan-line approach
+        function detectTvScreenArea() {
             return new Promise((resolve) => {
+                // Create new image object
                 const img = new Image();
                 img.src = 'tv_frame.png';
                 
@@ -174,161 +177,122 @@
                     const imageData = ctx.getImageData(0, 0, img.width, img.height);
                     const data = imageData.data;
                     
-                    // Analyze image to find white pixels (TV screen)
-                    const whitePixels = [];
-                    const whitenessThreshold = 240; // High value to detect very white pixels
+                    // Define transparent threshold
+                    const alphaThreshold = 50;
                     
-                    // First pass: identify all white pixels
-                    for (let y = 0; y < img.height; y++) {
-                        for (let x = 0; x < img.width; x++) {
-                            const idx = (y * img.width + x) * 4;
-                            const r = data[idx];
-                            const g = data[idx + 1];
-                            const b = data[idx + 2];
-                            const a = data[idx + 3];
-                            
-                            // Check if pixel is bright white and not transparent
-                            if (r >= whitenessThreshold && g >= whitenessThreshold && b >= whitenessThreshold && a > 200) {
-                                whitePixels.push({ x, y });
-                            }
+                    // Scan horizontally from center to find left and right boundaries
+                    const centerY = Math.floor(img.height / 2);
+                    const centerX = Math.floor(img.width / 2);
+                    
+                    console.log(`Starting scan from center point: (${centerX}, ${centerY})`);
+                    
+                    // Initialize boundaries with extreme values
+                    let left = img.width;
+                    let right = 0;
+                    let top = img.height;
+                    let bottom = 0;
+                    
+                    // Find horizontal boundaries at center Y
+                    for (let x = centerX; x >= 0; x--) {
+                        const idx = (centerY * img.width + x) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            left = x + 1; // First non-transparent pixel from left + 1
+                            break;
                         }
                     }
                     
-                    console.log(`Found ${whitePixels.length} white pixels (potential TV screen area)`);
-                    
-                    // If no white pixels found, use fallback values
-                    if (whitePixels.length === 0) {
-                        console.warn("No white pixels found in the TV frame image");
-                        applyFallbackValues();
-                        resolve();
-                        return;
-                    }
-                    
-                    // Find contiguous regions of white pixels
-                    // We'll use a simple approach: find the largest cluster of white pixels
-                    
-                    // First, create a density map to find where most white pixels are concentrated
-                    const densityMap = new Map();
-                    const gridSize = 20; // Size of grid cells for density analysis
-                    
-                    whitePixels.forEach(pixel => {
-                        const gridX = Math.floor(pixel.x / gridSize);
-                        const gridY = Math.floor(pixel.y / gridSize);
-                        const key = `${gridX},${gridY}`;
-                        
-                        if (!densityMap.has(key)) {
-                            densityMap.set(key, 0);
-                        }
-                        densityMap.set(key, densityMap.get(key) + 1);
-                    });
-                    
-                    // Find grid cell with highest density
-                    let maxDensity = 0;
-                    let maxDensityCell = null;
-                    
-                    for (const [key, density] of densityMap.entries()) {
-                        if (density > maxDensity) {
-                            maxDensity = density;
-                            maxDensityCell = key;
+                    for (let x = centerX; x < img.width; x++) {
+                        const idx = (centerY * img.width + x) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            right = x - 1; // First non-transparent pixel from right - 1
+                            break;
                         }
                     }
                     
-                    console.log(`Highest density cell: ${maxDensityCell} with ${maxDensity} white pixels`);
-                    
-                    // If no clear density found, use fallback
-                    if (!maxDensityCell || maxDensity < 10) {
-                        console.warn("No clear white pixel cluster found");
-                        applyFallbackValues();
-                        resolve();
-                        return;
+                    // Find vertical boundaries at center X
+                    for (let y = centerY; y >= 0; y--) {
+                        const idx = (y * img.width + centerX) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            top = y + 1; // First non-transparent pixel from top + 1
+                            break;
+                        }
                     }
                     
-                    // Extract grid coordinates from key
-                    const [gridXStr, gridYStr] = maxDensityCell.split(',');
-                    const gridX = parseInt(gridXStr);
-                    const gridY = parseInt(gridYStr);
-                    
-                    // Find all white pixels in and around this grid cell to form the screen area
-                    const screenPixels = whitePixels.filter(pixel => {
-                        const pixelGridX = Math.floor(pixel.x / gridSize);
-                        const pixelGridY = Math.floor(pixel.y / gridSize);
-                        
-                        // Include pixels in surrounding cells too (create a larger region)
-                        return Math.abs(pixelGridX - gridX) <= 1 && Math.abs(pixelGridY - gridY) <= 1;
-                    });
-                    
-                    console.log(`Selected ${screenPixels.length} pixels for screen area detection`);
-                    
-                    // Find the bounding box of these pixels
-                    let minX = img.width, maxX = 0, minY = img.height, maxY = 0;
-                    
-                    for (const pixel of screenPixels) {
-                        minX = Math.min(minX, pixel.x);
-                        maxX = Math.max(maxX, pixel.x);
-                        minY = Math.min(minY, pixel.y);
-                        maxY = Math.max(maxY, pixel.y);
+                    for (let y = centerY; y < img.height; y++) {
+                        const idx = (y * img.width + centerX) * 4 + 3;
+                        if (data[idx] >= alphaThreshold) {
+                            bottom = y - 1; // First non-transparent pixel from bottom - 1
+                            break;
+                        }
                     }
                     
-                    // Expand the bounding box slightly to ensure we capture the entire screen
+                    // Verify boundaries make sense
+                    const rawScreenWidth = right - left + 1;
+                    const rawScreenHeight = bottom - top + 1;
+                    
+                    console.log(`Raw screen area bounds: X(${left}-${right}), Y(${top}-${bottom})`);
+                    console.log(`Raw screen area dimensions: ${rawScreenWidth}x${rawScreenHeight}`);
+                    
+                    // Apply padding to ensure we're inside the visible area
                     const padding = 5;
-                    minX = Math.max(0, minX - padding);
-                    minY = Math.max(0, minY - padding);
-                    maxX = Math.min(img.width - 1, maxX + padding);
-                    maxY = Math.min(img.height - 1, maxY + padding);
+                    left += padding;
+                    right -= padding;
+                    top += padding;
+                    bottom -= padding;
                     
-                    // Calculate width and height of screen area
-                    const width = maxX - minX + 1;
-                    const height = maxY - minY + 1;
+                    // Calculate final dimensions
+                    const finalWidth = right - left + 1;
+                    const finalHeight = bottom - top + 1;
                     
-                    console.log(`Screen area bounds: X(${minX}-${maxX}), Y(${minY}-${maxY})`);
-                    console.log(`Screen area dimensions: ${width}x${height}`);
-                    
-                    // Validate detection
-                    const minAreaRatio = 0.05; // Screen area should be at least 5% of image
-                    const areaRatio = (width * height) / (img.width * img.height);
-                    
-                    if (areaRatio < minAreaRatio) {
-                        console.warn(`Detected area too small (${(areaRatio * 100).toFixed(2)}% of image)`);
+                    // Validate results
+                    if (finalWidth <= 0 || finalHeight <= 0 || left >= right || top >= bottom) {
+                        console.error("Invalid screen boundaries detected, using fallback");
                         applyFallbackValues();
                         resolve();
                         return;
                     }
                     
                     // Apply the detected dimensions as percentages
-                    const screenLeft = (minX / img.width) * 100;
-                    const screenTop = (minY / img.height) * 100;
-                    const screenWidth = (width / img.width) * 100;
-                    const screenHeight = (height / img.height) * 100;
+                    const screenLeft = (left / img.width) * 100;
+                    const screenTop = (top / img.height) * 100;
+                    const screenWidthPercent = (finalWidth / img.width) * 100;
+                    const screenHeightPercent = (finalHeight / img.height) * 100;
                     
                     // Set the TV content dimensions
                     tvContent.style.left = `${screenLeft}%`;
                     tvContent.style.top = `${screenTop}%`;
-                    tvContent.style.width = `${screenWidth}%`;
-                    tvContent.style.height = `${screenHeight}%`;
+                    tvContent.style.width = `${screenWidthPercent}%`;
+                    tvContent.style.height = `${screenHeightPercent}%`;
                     
                     console.log(`Applied TV content position: left=${tvContent.style.left}, top=${tvContent.style.top}, width=${tvContent.style.width}, height=${tvContent.style.height}`);
                     
-                    // Debug visualization (uncomment if needed for debugging)
-                    /*
-                    // Highlight white pixels
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-                    for (const pixel of screenPixels) {
-                        ctx.fillRect(pixel.x, pixel.y, 1, 1);
+                    // Debug visualization if needed
+                    const debugging = true; // Enable debug visualization
+                    if (debugging) {
+                        ctx.strokeStyle = 'lime';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(left, top, finalWidth, finalHeight);
+                        
+                        // Mark center point
+                        ctx.fillStyle = 'blue';
+                        ctx.fillRect(centerX - 5, centerY - 5, 10, 10);
+                        
+                        // Create a debug display
+                        const debugCanvas = document.createElement('canvas');
+                        debugCanvas.width = img.width;
+                        debugCanvas.height = img.height;
+                        const debugCtx = debugCanvas.getContext('2d');
+                        debugCtx.drawImage(canvas, 0, 0);
+                        
+                        document.body.appendChild(debugCanvas);
+                        debugCanvas.style.position = 'fixed';
+                        debugCanvas.style.top = '10px';
+                        debugCanvas.style.right = '10px';
+                        debugCanvas.style.zIndex = '1000';
+                        debugCanvas.style.width = '300px';
+                        debugCanvas.style.height = 'auto';
+                        debugCanvas.style.border = '2px solid red';
                     }
-                    
-                    // Draw bounding box
-                    ctx.strokeStyle = 'blue';
-                    ctx.lineWidth = 3;
-                    ctx.strokeRect(minX, minY, width, height);
-                    
-                    document.body.appendChild(canvas);
-                    canvas.style.position = 'absolute';
-                    canvas.style.top = '0';
-                    canvas.style.left = '0';
-                    canvas.style.zIndex = '100';
-                    canvas.style.transform = 'scale(0.5)';
-                    canvas.style.transformOrigin = 'top left';
-                    */
                     
                     // Resize canvases
                     handleResize();
@@ -343,13 +307,38 @@
                 
                 function applyFallbackValues() {
                     // Conservative fallback values
-                    tvContent.style.left = '11%';
-                    tvContent.style.top = '11%';
-                    tvContent.style.width = '78%';
+                    tvContent.style.left = '15%';
+                    tvContent.style.top = '12%';
+                    tvContent.style.width = '70%';
                     tvContent.style.height = '60%';
                     console.log("Using fallback TV content dimensions");
                 }
             });
+        }
+
+        // Add a direct sizing method as backup
+        function setupTvContentDirectly() {
+            // Wait for the TV frame to load
+            if (tvFrame.complete) {
+                applyDirectSizing();
+            } else {
+                tvFrame.onload = applyDirectSizing;
+            }
+            
+            function applyDirectSizing() {
+                console.log("Applying direct TV content sizing");
+                const frameWidth = tvFrame.offsetWidth;
+                const frameHeight = tvFrame.offsetHeight;
+                
+                // Apply TV content positioning based on typical TV proportions
+                tvContent.style.left = '15%';
+                tvContent.style.top = '12%';
+                tvContent.style.width = '70%';
+                tvContent.style.height = '60%';
+                
+                // Force the canvas sizes to update
+                handleResize();
+            }
         }
 
         // Set up canvases
@@ -603,8 +592,11 @@
         window.addEventListener('load', async () => {
             console.log("Page loaded, detecting TV screen area...");
             
-            // First detect the TV screen area
+            // Try the detection method first
             await detectTvScreenArea();
+            
+            // As a backup, also apply direct sizing
+            setupTvContentDirectly();
             
             // Then setup the canvases
             handleResize();
